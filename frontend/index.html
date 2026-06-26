@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Marginalia — an AI research desk</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ======================= SIDEBAR ======================= -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="brand__mark" aria-hidden="true">M</span>
+      <div class="brand__text">
+        <h1 class="brand__name">Marginalia</h1>
+        <p class="brand__tag">an AI research desk</p>
+      </div>
+    </div>
+
+    <button class="btn btn--new" id="newInquiryBtn" type="button">
+      <span>+</span> New inquiry
+    </button>
+
+    <nav class="sidebar__section">
+      <h2 class="sidebar__label">Inquiries</h2>
+      <ul class="session-list" id="sessionList"></ul>
+    </nav>
+
+    <section class="sidebar__section sidebar__section--memory">
+      <h2 class="sidebar__label">
+        The Index
+        <span class="hint">long-term memory</span>
+      </h2>
+      <ul class="memory-list" id="memoryList">
+        <li class="memory-empty">Nothing filed yet. The desk saves durable facts here as it learns them — across every inquiry.</li>
+      </ul>
+    </section>
+
+    <div class="sidebar__status">
+      <span class="dot" id="statusDot"></span>
+      <span id="statusText">connecting…</span>
+    </div>
+  </aside>
+
+  <!-- ======================== MAIN ========================== -->
+  <main class="main">
+
+    <header class="topbar">
+      <button class="icon-btn icon-btn--menu" id="sidebarToggle" type="button" aria-label="Toggle menu">☰</button>
+      <div class="topbar__titles">
+        <h2 class="topbar__title" id="sessionTitle">Untitled inquiry</h2>
+        <p class="topbar__sub">Plans, researches, checks its work, and writes up an answer — out loud.</p>
+      </div>
+      <label class="upload-pill" for="fileInput" title="Add a document for this inquiry to search">
+        📥 <span>Add document</span>
+        <input type="file" id="fileInput" accept=".pdf,.txt,.md" hidden>
+      </label>
+    </header>
+
+    <!-- ----------------- THE DESK (workflow visualization) ----------------- -->
+    <section class="desk" aria-label="Agent workflow">
+      <div class="desk__row">
+
+        <div class="card" data-node="router">
+          <span class="card__pin"></span>
+          <span class="card__role">Desk Clerk</span>
+          <span class="card__job">Routing</span>
+          <span class="card__stamp" aria-hidden="true"></span>
+        </div>
+
+        <div class="desk__chain">
+          <div class="card" data-node="planner">
+            <span class="card__pin"></span>
+            <span class="card__role">Curator</span>
+            <span class="card__job">Planning</span>
+            <span class="card__stamp" aria-hidden="true"></span>
+          </div>
+          <div class="thread"></div>
+          <div class="card" data-node="researcher">
+            <span class="card__pin"></span>
+            <span class="card__role">Field Agent</span>
+            <span class="card__job">Research &amp; tools</span>
+            <span class="card__stamp" aria-hidden="true"></span>
+          </div>
+          <div class="thread"></div>
+          <div class="card" data-node="analyst">
+            <span class="card__pin"></span>
+            <span class="card__loop" title="May send work back for another pass">↻</span>
+            <span class="card__role">Fact Checker</span>
+            <span class="card__job">Analysis</span>
+            <span class="card__stamp" aria-hidden="true"></span>
+          </div>
+          <div class="thread"></div>
+          <div class="card" data-node="writer">
+            <span class="card__pin"></span>
+            <span class="card__role">Editor</span>
+            <span class="card__job">Final answer</span>
+            <span class="card__stamp" aria-hidden="true"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="desk__branch">
+        <div class="thread thread--down"></div>
+        <div class="card card--branch" data-node="simple_responder">
+          <span class="card__pin"></span>
+          <span class="card__role">Quick reply</span>
+          <span class="card__job">No research needed</span>
+          <span class="card__stamp" aria-hidden="true"></span>
+        </div>
+      </div>
+
+      <div class="desk__notes" id="planNotes" aria-live="polite"></div>
+    </section>
+
+    <!-- ----------------------- LOG + CONVERSATION ----------------------- -->
+    <section class="workspace">
+      <div class="log" aria-label="Live agent log">
+        <h3 class="workspace__label">Field log</h3>
+        <div class="log__feed" id="logFeed">
+          <p class="log__empty">Ask a question below and watch the desk work.</p>
+        </div>
+      </div>
+
+      <div class="conversation" id="conversation" aria-label="Conversation">
+        <div class="conversation__empty" id="conversationEmpty">
+          <p>This desk is empty for now. Try something like:</p>
+          <ul>
+            <li>"Compare the cost-effectiveness of solar vs. wind power for a small town."</li>
+            <li>"What does recent research say about creatine and cognition?"</li>
+            <li>"Summarize the document I just uploaded and flag any numbers worth double-checking."</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <form class="composer" id="composerForm">
+      <textarea id="composerInput" placeholder="Ask the desk anything…" rows="1"></textarea>
+      <button type="submit" id="sendBtn" class="btn btn--send">Send</button>
+    </form>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.5/purify.min.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# env / secrets
+.env
+
+# runtime data (created automatically, shouldn't be committed)
+backend/data/
+backend/reports/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
