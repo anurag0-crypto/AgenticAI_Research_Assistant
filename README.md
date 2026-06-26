@@ -50,10 +50,10 @@ cp .env.example .env
 uvicorn main:app --reload --port 8000
 ```
 
-Open **http://localhost:8000** — that's it. A first "inquiry" is created
+Opening **http://localhost:8000** creates a first "inquiry"
 automatically.
 
-You need **one** LLM API key (pick whichever you have):
+ One LLM API key required:
 
 | Provider  | Get a key at                              | Free tier? |
 |-----------|--------------------------------------------|------------|
@@ -63,8 +63,8 @@ You need **one** LLM API key (pick whichever you have):
 | Gemini    | aistudio.google.com/apikey                   | **yes** |
 
 Web search works out of the box with no key (free DuckDuckGo backend). If
-you add a free [Tavily](https://tavily.com) key, the agent automatically
-upgrades to it for higher-quality, more reliable results.
+a free [Tavily](https://tavily.com) key is added , the agent automatically
+upgrades to it for higher quality, more reliable results.
 
 > Model names move fast. If a default model in `.env.example` is no longer
 > live by the time you read this, swap in the provider's current model id —
