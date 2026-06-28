@@ -4,7 +4,7 @@ Marginalia is a multi-agent research assistant. You ask it something; it
 **plans** a short research strategy, **researches** each part with real
 tools (web search, arXiv, your own uploaded documents), **checks its own
 work** and decides whether it needs another pass, then **writes up** a
-final answer — optionally as a downloadable PDF — and **remembers** durable
+final answer and **remembers** durable
 facts about you for next time. A live "corkboard" in the UI shows which
 agent is working at every moment.
 
@@ -105,8 +105,8 @@ to **six** specialized LLM calls across **six roles**, wired together with
                                                   │   EDITOR    │  (Writer)
                                                   │ writes the  │
                                                   │ final answer│
-                                                  │ + maybe a   │
-                                                  │ PDF + memory│
+                                                  │
+                                                     + memory│
                                                   └──────┬──────┘
                                                           ▼
                                                          END
@@ -145,7 +145,6 @@ path takes when the Router decides full research isn't needed.
 | `calculator` | Fact Checker | LLMs are unreliable at exact arithmetic. Any number worth checking (percentages, growth rates, sums) goes through a real, sandboxed evaluator instead of being "eyeballed." |
 | `knowledge_base_search` | Field Agent | Grounds answers in **your** uploaded documents (TF-IDF retrieval over chunked text) — for material that isn't on the public web and isn't in the model's training data. |
 | `save_memory` / `recall_memory` | Editor, Quick Reply | Give the agent a memory that survives *after* the chat ends — an LLM call by itself has zero persistent state. |
-| `generate_pdf_report` | Editor | Turns a chat answer into an actual deliverable file, when the agent decides the inquiry was substantive enough to deserve one. |
 
 Every tool call is logged to the UI's "Field log" the moment it happens —
 that's not cosmetic, it's literally streaming the same `tool_calls` LangGraph
@@ -174,7 +173,7 @@ session — the backend pre-fetches relevant saved facts
 (`db.search_memory`) and feeds them to the Curator/Planner before it even
 starts planning, and the agent can also explicitly call `recall_memory`
 mid-conversation. The sidebar's "Index" panel lists everything saved, with
-a one-click "forget" button, so memory is inspectable and correctable, not
+a one click "forget" button, so memory is inspectable and correctable, not
 a black box.
 
 **Document memory (RAG)** — uploaded files are chunked and stored in
@@ -189,7 +188,7 @@ separate kind of memory: per-document, not per-fact.
 - ✅ Accepts user input — chat composer, streamed over WebSocket
 - ✅ Uses an LLM API — any of Claude / OpenAI / Groq / Gemini, switchable in `.env`
 - ✅ Uses **7** tools across 2+ categories (web search, academic API, sandboxed
-  calculator, file-based RAG, a small SQLite-backed memory store, PDF generation)
+  calculator, file-based RAG, a small SQLite-backed memory store)
 - ✅ Tool necessity is explained above and visible live in the UI log
 - ✅ Memory persists across sessions (long-term facts) *and* within a session
   (chat history) — not just a rolling chat buffer
@@ -197,11 +196,11 @@ separate kind of memory: per-document, not per-fact.
   not one call
 - ✅ Demonstrates planning (Curator), tool selection + use (Field Agent),
   evaluation/decision-making (Fact Checker's loop-back, Router's classification),
-  and autonomous final action (Editor deciding whether to file a PDF/memory)
+  and autonomous final action 
 - ✅ Polished, purpose-built frontend (no UI framework, fully custom design)
 
 **Bonus features implemented:** multi-agent architecture (LangGraph,
-6 roles), RAG over uploaded documents, PDF report generation, live workflow
+6 roles), RAG over uploaded documents, live workflow
 visualization, custom tool creation (a hand-rolled safe calculator, a custom
 TF-IDF retrieval tool), and a from-scratch design system instead of a
 default template.

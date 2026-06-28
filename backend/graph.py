@@ -41,7 +41,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langgraph.graph import END, START, StateGraph
 
 from llm import get_llm
-from tools import build_tools, _build_pdf
+from tools import build_tools
 from utils import describe_call, extract_sources, safe_json_extract, summarize_result
 
 MAX_ITERATIONS = 2  # at most one "go research more" loop, to bound cost/latency
@@ -274,18 +274,15 @@ async def writer_node(state: AgentState) -> dict:
     await state["emit"]({"type": "status", "node": "writer", "status": "active"})
     llm = get_llm(temperature=0.4)
     by_name = {t.name: t for t in build_tools(state["session_id"])}
-    tools = [by_name["save_memory"], by_name["generate_pdf_report"]]
+    tools = [by_name["save_memory"]]
 
     system = (
         "You are the Editor at a research desk. Write the final answer for the visitor using the "
         "research notes below. Use clear markdown: a short lead sentence, then '## ' headings and "
         "'- ' bullets if it helps, citing sources by name (not raw URLs). Be honest about open "
         "questions or conflicting evidence.\n\n"
-        "Then decide on two follow-up actions, each via a tool call, calling each AT MOST once:\n"
-        "1. If this was a substantive research inquiry worth a formal write-up (not a quick factual "
-        "answer), call generate_pdf_report with a short title and the same markdown content.\n"
-        "2. If a durable fact, preference, or goal about the visitor emerged, call save_memory.\n"
-        "Once you've made both decisions (calling either, both, or neither), reply with your final "
+        "If a durable fact, preference, or goal about the visitor emerged during this inquiry, call "
+        "save_memory (at most once) to file it away for future sessions. Then reply with your final "
         "answer in plain markdown text and stop."
     )
     user = (
@@ -294,33 +291,10 @@ async def writer_node(state: AgentState) -> dict:
         f"Fact-checker's note: {state.get('analysis', {}).get('reasoning', '')}"
     )
     final_text, tool_log, _ = await _tool_loop(llm, tools, system, user, state["emit"], "writer", max_rounds=3)
+    saved = [e["args"].get("fact", "") for e in tool_log if e["tool"] == "save_memory"]
 
-    report_url, saved = None, []
-    for entry in tool_log:
-        if entry["tool"] == "generate_pdf_report" and "::" in entry["result"]:
-            report_url = entry["result"].split("::")[-1].strip()
-        if entry["tool"] == "save_memory":
-            saved.append(entry["args"].get("fact", ""))
-
-    # Don't rely solely on the model choosing to call generate_pdf_report —
-    # smaller/open-weight models are inconsistent about this kind of
-    # autonomous "should I take this extra action" judgment call. Every
-    # full research-path answer (this node is never reached by the quick
-    # chat path) gets a report regardless, guaranteeing the feature works.
-    if report_url is None:
-        try:
-            title = (state.get("plan") or {}).get("intent_summary") or state["user_query"]
-            report_url = _build_pdf(title[:80], final_text, state["session_id"])
-            await state["emit"]({"type": "log", "node": "writer", "message": "🖨️ Filing a PDF report"})
-        except Exception as e:
-            await state["emit"](
-                {
-                    "type": "log",
-                    "node": "writer",
-                    "message": f"⚠️ Couldn't generate a PDF this time ({type(e).__name__}).",
-                }
-            )
-    return {"final_answer": final_text, "report_url": report_url, "saved_memories": saved}
+    await state["emit"]({"type": "status", "node": "writer", "status": "done"})
+    return {"final_answer": final_text, "report_url": None, "saved_memories": saved}
 
 
 # --------------------------------------------------------- SIMPLE_RESPONDER --
