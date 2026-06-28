@@ -7,7 +7,6 @@ websockets==13.1
 
 # --- agent orchestration -------------------------------------------------
 langchain==0.3.14
-langchain-core==0.3.29
 langgraph==0.2.62
 
 # LLM providers (you only need the package for the provider you set in
