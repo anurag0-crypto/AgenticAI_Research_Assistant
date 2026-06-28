@@ -308,11 +308,18 @@ async def writer_node(state: AgentState) -> dict:
     # full research-path answer (this node is never reached by the quick
     # chat path) gets a report regardless, guaranteeing the feature works.
     if report_url is None:
-        title = (state.get("plan") or {}).get("intent_summary") or state["user_query"]
-        report_url = _build_pdf(title[:80], final_text, state["session_id"])
-        await state["emit"]({"type": "log", "node": "writer", "message": "🖨️ Filing a PDF report"})
-
-    await state["emit"]({"type": "status", "node": "writer", "status": "done"})
+        try:
+            title = (state.get("plan") or {}).get("intent_summary") or state["user_query"]
+            report_url = _build_pdf(title[:80], final_text, state["session_id"])
+            await state["emit"]({"type": "log", "node": "writer", "message": "🖨️ Filing a PDF report"})
+        except Exception as e:
+            await state["emit"](
+                {
+                    "type": "log",
+                    "node": "writer",
+                    "message": f"⚠️ Couldn't generate a PDF this time ({type(e).__name__}).",
+                }
+            )
     return {"final_answer": final_text, "report_url": report_url, "saved_memories": saved}
 
 

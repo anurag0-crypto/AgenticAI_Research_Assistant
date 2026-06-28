@@ -168,6 +168,25 @@ def calculator(expression: str) -> str:
 
 # ------------------------------------------------------------------ PDF tool --
 
+def _pdf_safe(text: str, max_token_len: int = 70) -> str:
+    """Make a line of (possibly LLM-generated) markdown-ish text safe to hand
+    to fpdf2's multi_cell, which raises outright if it ever meets a single
+    unbroken "word" wider than the page — most often a raw URL or a markdown
+    link the model included despite being asked to cite sources by name."""
+    # markdown images/links -> keep only the visible text, drop the URL
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+
+    def _break_long(match):
+        token = match.group(0)
+        return " ".join(token[i : i + max_token_len] for i in range(0, len(token), max_token_len))
+
+    # any remaining unbroken run longer than max_token_len (e.g. a bare URL)
+    # gets soft-broken so fpdf2 always has somewhere to wrap the line
+    text = re.sub(rf"\S{{{max_token_len + 1},}}", _break_long, text)
+    return text
+
+
 def _build_pdf(title: str, markdown_content: str, session_id: str) -> str:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     pdf = FPDF()
@@ -175,7 +194,7 @@ def _build_pdf(title: str, markdown_content: str, session_id: str) -> str:
     pdf.add_page()
 
     pdf.set_font("Helvetica", "B", 18)
-    pdf.multi_cell(0, 10, title)
+    pdf.multi_cell(0, 10, _pdf_safe(title, max_token_len=35))
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(120, 120, 120)
     stamp = datetime.datetime.now().strftime("%d %b %Y, %H:%M")
@@ -189,22 +208,30 @@ def _build_pdf(title: str, markdown_content: str, session_id: str) -> str:
             pdf.ln(3)
             continue
         clean = re.sub(r"\*\*(.*?)\*\*", r"\1", line)
-        if line.startswith("## "):
-            pdf.ln(2)
-            pdf.set_font("Helvetica", "B", 13)
-            pdf.multi_cell(0, 7, clean[3:])
+        clean = _pdf_safe(clean)
+        try:
+            if line.startswith("## "):
+                pdf.ln(2)
+                pdf.set_font("Helvetica", "B", 13)
+                pdf.multi_cell(0, 7, clean[3:])
+                pdf.set_font("Helvetica", "", 11)
+            elif line.startswith("# "):
+                pdf.ln(2)
+                pdf.set_font("Helvetica", "B", 15)
+                pdf.multi_cell(0, 8, clean[2:])
+                pdf.set_font("Helvetica", "", 11)
+            elif line.startswith("- ") or line.startswith("* "):
+                pdf.set_font("Helvetica", "", 11)
+                pdf.multi_cell(0, 6, f"   -  {clean[2:]}")
+            else:
+                pdf.set_font("Helvetica", "", 11)
+                pdf.multi_cell(0, 6, clean)
+        except Exception:
+            # Last-resort safety net: never let one stubborn line abort the
+            # whole report. Fall back to hard, fixed-width character chunks.
             pdf.set_font("Helvetica", "", 11)
-        elif line.startswith("# "):
-            pdf.ln(2)
-            pdf.set_font("Helvetica", "B", 15)
-            pdf.multi_cell(0, 8, clean[2:])
-            pdf.set_font("Helvetica", "", 11)
-        elif line.startswith("- ") or line.startswith("* "):
-            pdf.set_font("Helvetica", "", 11)
-            pdf.multi_cell(0, 6, f"   -  {clean[2:]}")
-        else:
-            pdf.set_font("Helvetica", "", 11)
-            pdf.multi_cell(0, 6, clean)
+            chunked = "\n".join(clean[i : i + 60] for i in range(0, len(clean), 60))
+            pdf.multi_cell(0, 6, chunked)
 
     fname = f"{session_id}_{int(datetime.datetime.now().timestamp())}.pdf"
     path = REPORTS_DIR / fname
