@@ -192,40 +192,31 @@ def _pdf_safe(text: str, max_token_len: int = 70) -> str:
        FPDFException for these. LLMs use "smart typography" constantly, so
        this is actually the more common of the two in practice.
     """
-    # markdown images/links -> keep only the visible text, drop the URL
     text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
-
-    # downgrade common "smart typography" to plain ASCII equivalents instead
-    # of just deleting it, so the PDF still reads naturally
     for src, dst in _UNICODE_REPLACEMENTS.items():
         text = text.replace(src, dst)
-
-    # final safety net: silently drop anything still outside the core font's
-    # encoding (emoji, exotic symbols, non-Latin scripts) rather than crash
     text = text.encode("latin-1", errors="ignore").decode("latin-1")
 
     def _break_long(match):
         token = match.group(0)
         return " ".join(token[i : i + max_token_len] for i in range(0, len(token), max_token_len))
 
-    # any remaining unbroken run longer than max_token_len (e.g. a bare URL)
-    # gets soft-broken so fpdf2 always has somewhere to wrap the line
     text = re.sub(rf"\S{{{max_token_len + 1},}}", _break_long, text)
     return text
 
 
-def _build_pdf(title: str, markdown_content: str, session_id: str) -> str:
-    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+def _render_pdf_rich(title: str, markdown_content: str, path) -> None:
+    """The nice, formatted renderer: headings, bullets, bold stripped to
+    plain text. Can still theoretically choke on some fpdf2 edge case we
+    haven't seen yet — that's what _render_pdf_plain below is for."""
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=18)
     pdf.add_page()
 
     pdf.set_font("Helvetica", "B", 18)
-    try:
-        pdf.multi_cell(0, 10, _pdf_safe(title, max_token_len=35))
-    except Exception:
-        pdf.multi_cell(0, 10, "Research Report")
+    safe_title = _pdf_safe(title, max_token_len=35).strip() or "Research Report"
+    pdf.multi_cell(0, 10, safe_title)
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(120, 120, 120)
     stamp = datetime.datetime.now().strftime("%d %b %Y, %H:%M")
@@ -240,33 +231,88 @@ def _build_pdf(title: str, markdown_content: str, session_id: str) -> str:
             continue
         clean = re.sub(r"\*\*(.*?)\*\*", r"\1", line)
         clean = _pdf_safe(clean)
-        try:
-            if line.startswith("## "):
-                pdf.ln(2)
-                pdf.set_font("Helvetica", "B", 13)
-                pdf.multi_cell(0, 7, clean[3:])
-                pdf.set_font("Helvetica", "", 11)
-            elif line.startswith("# "):
-                pdf.ln(2)
-                pdf.set_font("Helvetica", "B", 15)
-                pdf.multi_cell(0, 8, clean[2:])
-                pdf.set_font("Helvetica", "", 11)
-            elif line.startswith("- ") or line.startswith("* "):
-                pdf.set_font("Helvetica", "", 11)
-                pdf.multi_cell(0, 6, f"   -  {clean[2:]}")
-            else:
-                pdf.set_font("Helvetica", "", 11)
-                pdf.multi_cell(0, 6, clean)
-        except Exception:
-            # Last-resort safety net: never let one stubborn line abort the
-            # whole report. Fall back to hard, fixed-width character chunks.
-            pdf.set_font("Helvetica", "", 11)
-            chunked = "\n".join(clean[i : i + 60] for i in range(0, len(clean), 60))
-            pdf.multi_cell(0, 6, chunked)
 
+        if line.startswith("## "):
+            body = clean[3:].strip()
+            if not body:
+                continue
+            pdf.ln(2)
+            pdf.set_font("Helvetica", "B", 13)
+            pdf.multi_cell(0, 7, body)
+            pdf.set_font("Helvetica", "", 11)
+        elif line.startswith("# "):
+            body = clean[2:].strip()
+            if not body:
+                continue
+            pdf.ln(2)
+            pdf.set_font("Helvetica", "B", 15)
+            pdf.multi_cell(0, 8, body)
+            pdf.set_font("Helvetica", "", 11)
+        elif line.startswith("- ") or line.startswith("* "):
+            body = clean[2:].strip()
+            if not body:
+                continue
+            pdf.set_font("Helvetica", "", 11)
+            pdf.multi_cell(0, 6, f"   -  {body}")
+        else:
+            body = clean.strip()
+            if not body:
+                continue
+            pdf.set_font("Helvetica", "", 11)
+            pdf.multi_cell(0, 6, body)
+
+    pdf.output(str(path))
+
+
+def _render_pdf_plain(title: str, markdown_content: str, path) -> None:
+    """Absolute last-resort renderer. No markdown parsing, no headings, no
+    bullets — just guaranteed-safe, fixed-width, never-empty chunks of plain
+    text. Every chunk is short, non-empty, and pure latin-1, so this cannot
+    trigger either of fpdf2's known failure modes. This is what fires if
+    _render_pdf_rich fails for any reason at all, expected or not."""
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=18)
+    pdf.add_page()
+
+    def safe(s: str) -> str:
+        return (s or "").encode("latin-1", errors="ignore").decode("latin-1")
+
+    def chunked_cell(text: str, chunk_len: int) -> None:
+        text = text.strip()
+        if not text:
+            return
+        for i in range(0, len(text), chunk_len):
+            chunk = text[i : i + chunk_len].strip()
+            if chunk:
+                pdf.multi_cell(0, 6, chunk)
+
+    pdf.set_font("Helvetica", "B", 16)
+    safe_title = safe(title).strip()[:120] or "Research Report"
+    chunked_cell(safe_title, 30)
+    pdf.ln(4)
+
+    pdf.set_font("Helvetica", "", 11)
+    body = safe(markdown_content).replace("\r", "")
+    for paragraph in body.split("\n"):
+        text = re.sub(r"[#*_`>]", "", paragraph).strip()
+        if not text:
+            pdf.ln(4)
+            continue
+        chunked_cell(text, 45)
+
+    pdf.output(str(path))
+
+
+def _build_pdf(title: str, markdown_content: str, session_id: str) -> str:
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     fname = f"{session_id}_{int(datetime.datetime.now().timestamp())}.pdf"
     path = REPORTS_DIR / fname
-    pdf.output(str(path))
+    try:
+        _render_pdf_rich(title, markdown_content, path)
+    except Exception:
+        # The nice renderer hit something unforeseen — fall back to the
+        # bulletproof plain renderer so a report is *always* produced.
+        _render_pdf_plain(title, markdown_content, path)
     return f"/reports/{fname}"
 
 
