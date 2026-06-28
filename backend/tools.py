@@ -168,14 +168,42 @@ def calculator(expression: str) -> str:
 
 # ------------------------------------------------------------------ PDF tool --
 
+_UNICODE_REPLACEMENTS = {
+    "\u2018": "'", "\u2019": "'",      # ' '
+    "\u201c": '"', "\u201d": '"',      # " "
+    "\u2013": "-", "\u2014": "-",      # en dash, em dash
+    "\u2026": "...",                    # ellipsis
+    "\u2022": "-", "\u25cf": "-", "\u25aa": "-",  # bullet variants
+    "\u2192": "->", "\u2190": "<-",   # arrows
+    "\u21bb": "(loop)", "\u2194": "<->",
+    "\u00a0": " ",                       # non-breaking space
+    "\u2212": "-",                       # minus sign
+}
+
+
 def _pdf_safe(text: str, max_token_len: int = 70) -> str:
     """Make a line of (possibly LLM-generated) markdown-ish text safe to hand
-    to fpdf2's multi_cell, which raises outright if it ever meets a single
-    unbroken "word" wider than the page — most often a raw URL or a markdown
-    link the model included despite being asked to cite sources by name."""
+    to fpdf2's multi_cell. Two independent failure modes get neutralized here:
+
+    1. A single unbroken "word" wider than the page (a raw URL or markdown
+       link) — fpdf2 raises 'not enough horizontal space' for these.
+    2. A character outside the basic Helvetica core font's encoding (smart
+       quotes, em dashes, emoji, non-Latin scripts) — fpdf2 raises
+       FPDFException for these. LLMs use "smart typography" constantly, so
+       this is actually the more common of the two in practice.
+    """
     # markdown images/links -> keep only the visible text, drop the URL
     text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+
+    # downgrade common "smart typography" to plain ASCII equivalents instead
+    # of just deleting it, so the PDF still reads naturally
+    for src, dst in _UNICODE_REPLACEMENTS.items():
+        text = text.replace(src, dst)
+
+    # final safety net: silently drop anything still outside the core font's
+    # encoding (emoji, exotic symbols, non-Latin scripts) rather than crash
+    text = text.encode("latin-1", errors="ignore").decode("latin-1")
 
     def _break_long(match):
         token = match.group(0)
@@ -194,7 +222,10 @@ def _build_pdf(title: str, markdown_content: str, session_id: str) -> str:
     pdf.add_page()
 
     pdf.set_font("Helvetica", "B", 18)
-    pdf.multi_cell(0, 10, _pdf_safe(title, max_token_len=35))
+    try:
+        pdf.multi_cell(0, 10, _pdf_safe(title, max_token_len=35))
+    except Exception:
+        pdf.multi_cell(0, 10, "Research Report")
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(120, 120, 120)
     stamp = datetime.datetime.now().strftime("%d %b %Y, %H:%M")
