@@ -237,7 +237,7 @@
 
   function resetDesk() {
     document.querySelectorAll(".card").forEach((c) => c.classList.remove("active", "done", "skipped", "looping"));
-    document.querySelectorAll(".thread").forEach((t) => t.classList.remove("lit"));
+    document.querySelectorAll(".desk__chain .thread").forEach((t) => t.classList.add("lit"));
     els.planNotes.innerHTML = "";
   }
 

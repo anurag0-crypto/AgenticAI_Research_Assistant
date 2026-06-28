@@ -15,7 +15,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# override=True so a real key in .env always wins, even if some empty/stale
+# ANTHROPIC_API_KEY (etc.) is already sitting in the shell environment.
+load_dotenv(override=True)
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles

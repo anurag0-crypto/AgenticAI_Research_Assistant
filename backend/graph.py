@@ -41,7 +41,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, Tool
 from langgraph.graph import END, START, StateGraph
 
 from llm import get_llm
-from tools import build_tools
+from tools import build_tools, _build_pdf
 from utils import describe_call, extract_sources, safe_json_extract, summarize_result
 
 MAX_ITERATIONS = 2  # at most one "go research more" loop, to bound cost/latency
@@ -105,7 +105,30 @@ async def _tool_loop(llm, tools, system_prompt, user_prompt, emit, node_name, ma
     tool_log, sources = [], []
 
     for _ in range(max_rounds):
-        ai_msg: AIMessage = await bound.ainvoke(messages)
+        try:
+            ai_msg: AIMessage = await bound.ainvoke(messages)
+        except Exception as e:
+            # Some hosted models occasionally hallucinate a tool call that was
+            # never offered (e.g. a "browser" tool baked into their chat
+            # template), which the provider's API rejects outright before any
+            # content comes back. Rather than failing the whole turn, drop
+            # tools and force a plain-text answer from what we have so far.
+            await emit({
+                "type": "log",
+                "node": node_name,
+                "message": f"⚠️ Tool-calling hiccup ({type(e).__name__}) — answering without further tools.",
+            })
+            fallback = await llm.ainvoke(
+                messages
+                + [
+                    HumanMessage(
+                        content="Tool calling isn't available right now. Answer as best you can "
+                        "from the information already available in this conversation, in plain text."
+                    )
+                ]
+            )
+            return fallback.content, tool_log, sources
+
         messages.append(ai_msg)
         calls = getattr(ai_msg, "tool_calls", None) or []
         if not calls:
@@ -278,6 +301,16 @@ async def writer_node(state: AgentState) -> dict:
             report_url = entry["result"].split("::")[-1].strip()
         if entry["tool"] == "save_memory":
             saved.append(entry["args"].get("fact", ""))
+
+    # Don't rely solely on the model choosing to call generate_pdf_report —
+    # smaller/open-weight models are inconsistent about this kind of
+    # autonomous "should I take this extra action" judgment call. Every
+    # full research-path answer (this node is never reached by the quick
+    # chat path) gets a report regardless, guaranteeing the feature works.
+    if report_url is None:
+        title = (state.get("plan") or {}).get("intent_summary") or state["user_query"]
+        report_url = _build_pdf(title[:80], final_text, state["session_id"])
+        await state["emit"]({"type": "log", "node": "writer", "message": "🖨️ Filing a PDF report"})
 
     await state["emit"]({"type": "status", "node": "writer", "status": "done"})
     return {"final_answer": final_text, "report_url": report_url, "saved_memories": saved}
