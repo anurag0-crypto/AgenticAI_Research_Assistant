@@ -105,18 +105,28 @@ async def _tool_loop(llm, tools, system_prompt, user_prompt, emit, node_name, ma
     tool_log, sources = [], []
 
     for _ in range(max_rounds):
-        try:
-            ai_msg: AIMessage = await bound.ainvoke(messages)
-        except Exception as e:
-            # Some hosted models occasionally hallucinate a tool call that was
-            # never offered (e.g. a "browser" tool baked into their chat
-            # template), which the provider's API rejects outright before any
-            # content comes back. Rather than failing the whole turn, drop
-            # tools and force a plain-text answer from what we have so far.
+        ai_msg: Optional[AIMessage] = None
+        last_error = None
+
+        # Some hosted models (Groq's open-weight tool calling especially)
+        # occasionally return a malformed/unparseable function call that the
+        # provider's API rejects outright before any content comes back.
+        # This is non-deterministic provider-side flakiness, not something
+        # our prompt controls, so a same-input retry often just succeeds.
+        for attempt in range(2):
+            try:
+                ai_msg = await bound.ainvoke(messages)
+                break
+            except Exception as e:
+                last_error = e
+
+        if ai_msg is None:
+            # Both attempts failed: drop tools and force a plain-text answer
+            # from what we have so far, rather than failing the whole turn.
             await emit({
                 "type": "log",
                 "node": node_name,
-                "message": f"⚠️ Tool-calling hiccup ({type(e).__name__}) — answering without further tools.",
+                "message": f"⚠️ Tool-calling hiccup ({type(last_error).__name__}) — answering without further tools.",
             })
             fallback = await llm.ainvoke(
                 messages
