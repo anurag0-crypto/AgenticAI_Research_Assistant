@@ -178,22 +178,45 @@ def build_tools(session_id: str):
         chunks = db.get_document_chunks(session_id)
         if not chunks:
             return "No documents have been uploaded for this session. Use web_search or arxiv_search instead."
+
         texts = [c["content"] for c in chunks]
-        vectorizer = TfidfVectorizer(stop_words="english").fit(texts + [query])
-        matrix = vectorizer.transform(texts)
-        qvec = vectorizer.transform([query])
-        sims = cosine_similarity(qvec, matrix)[0]
-        ranked = sorted(zip(sims, chunks), key=lambda x: x[0], reverse=True)[:4]
+
+        try:
+            vectorizer = TfidfVectorizer(stop_words="english").fit(texts + [query])
+            matrix = vectorizer.transform(texts)
+            qvec = vectorizer.transform([query])
+            sims = list(cosine_similarity(qvec, matrix)[0])
+        except ValueError:
+            # Can happen on very short or number-heavy chunks where, after
+            # stripping English stopwords, there's barely any vocabulary to
+            # build a TF-IDF space from. Fall back to plain keyword overlap.
+            query_words = {w.lower() for w in re.findall(r"\w+", query) if len(w) > 2}
+            sims = []
+            for c in texts:
+                text_words = {w.lower() for w in re.findall(r"\w+", c)}
+                sims.append(float(len(query_words & text_words)))
+
+        ranked = sorted(zip(sims, chunks), key=lambda x: x[0], reverse=True)
+
+        # Prefer chunks that actually scored, but for short or generically
+        # phrased queries (e.g. "summarize this and flag numbers to check")
+        # TF-IDF can legitimately score *everything* at 0 even though the
+        # document is perfectly relevant. Don't let a pure lexical mismatch
+        # look identical to "no document was ever uploaded" — fall back to
+        # the top chunks anyway so the agent always has the document content
+        # to work with whenever one exists for this session.
+        top = [c for score, c in ranked if score > 0][:4]
+        if not top:
+            top = [c for _, c in ranked[:3]]
+
         lines = []
-        for score, c in ranked:
-            if score <= 0:
-                continue
+        for c in top:
             snippet = c["content"][:400].replace("\n", " ")
             lines.append(
                 f"{c['filename']} (chunk {c['chunk_index']}) :: "
                 f"doc://{c['filename']}#{c['chunk_index']} :: {snippet}"
             )
-        return "\n".join(lines) if lines else "No relevant passages found in the uploaded documents."
+        return "\n".join(lines)
 
     @tool
     def save_memory(fact: str, tag: str = "fact") -> str:
