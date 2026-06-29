@@ -116,14 +116,72 @@ def chunk_text(text: str, size: int = 900, overlap: int = 150) -> list:
 
 
 def extract_text_from_upload(filename: str, content: bytes) -> str:
-    """Pull plain text out of an uploaded file (.pdf, .txt, .md, or anything text-ish)."""
-    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
-    if ext == "pdf":
-        from pypdf import PdfReader
+    """Pull plain text out of an uploaded file (.pdf, .txt, .md, or anything text-ish).
 
-        reader = PdfReader(io.BytesIO(content))
-        return "\n".join((page.extract_text() or "") for page in reader.pages)
+    Raises ValueError with a *specific* reason on failure (corrupted file,
+    password-protected, scanned/image-only with no text layer, etc.) so the
+    /upload endpoint in main.py can show the visitor something useful instead
+    of a generic "could not read" message.
+    """
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+
+    if ext == "pdf":
+        return _extract_pdf_text(content)
+
     try:
         return content.decode("utf-8")
     except UnicodeDecodeError:
         return content.decode("latin-1", errors="ignore")
+
+
+def _extract_pdf_text(content: bytes) -> str:
+    from pypdf import PdfReader
+    from pypdf.errors import PdfReadError
+
+    if not content:
+        raise ValueError("The uploaded file is empty.")
+
+    try:
+        # strict=False: tolerate the kind of minor structural issues that
+        # real-world PDFs (exported from Word, scanners, etc.) often have.
+        reader = PdfReader(io.BytesIO(content), strict=False)
+    except PdfReadError as e:
+        raise ValueError(f"This doesn't look like a valid PDF (or it's corrupted): {e}")
+    except Exception as e:
+        raise ValueError(f"Could not open this PDF: {e}")
+
+    if getattr(reader, "is_encrypted", False):
+        try:
+            reader.decrypt("")  # most "encrypted" PDFs just have an empty owner password
+        except Exception:
+            raise ValueError(
+                "This PDF is password-protected. Remove the password and re-upload."
+            )
+
+    if not reader.pages:
+        raise ValueError("This PDF has no pages.")
+
+    pages_text = []
+    bad_pages = 0
+    for page in reader.pages:
+        try:
+            pages_text.append(page.extract_text() or "")
+        except Exception:
+            # Don't let one malformed page kill extraction for the whole document.
+            bad_pages += 1
+            pages_text.append("")
+
+    text = "\n".join(pages_text)
+
+    if not text.strip():
+        if bad_pages == len(reader.pages):
+            raise ValueError(
+                "Every page in this PDF failed to parse — it may be corrupted."
+            )
+        raise ValueError(
+            "No extractable text found in this PDF. It's likely a scanned "
+            "document or image-only PDF (no embedded text layer) — this app "
+            "doesn't OCR scanned pages yet, so a text-based PDF is needed."
+        )
+
+    return text
