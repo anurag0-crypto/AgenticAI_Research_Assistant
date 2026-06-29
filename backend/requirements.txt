@@ -13,6 +13,7 @@ langgraph==0.2.62
 # LLM_PROVIDER, but installing all of them means you can switch any time)
 langchain-anthropic==0.3.4
 langchain-openai==0.3.1
+langchain-cerebras
 langchain-groq==0.2.3
 langchain-google-genai==2.0.8
 

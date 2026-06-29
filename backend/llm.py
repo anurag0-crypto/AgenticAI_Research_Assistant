@@ -1,13 +1,14 @@
 """
 llm.py — one switch to change which LLM powers every agent role.
 
-Set LLM_PROVIDER in .env to "anthropic", "openai", "groq", or "gemini" and
-every node in graph.py picks it up automatically through get_llm(). This is
-what satisfies the "use an LLM API (Gemini, OpenAI, Claude, Groq, etc.)"
-requirement without hard-coding a single vendor anywhere else in the app.
+Set LLM_PROVIDER in .env to "anthropic", "openai", "groq", "gemini", or
+"cerebras" and every node in graph.py picks it up automatically through
+get_llm(). This is what satisfies the "use an LLM API (Gemini, OpenAI,
+Claude, Groq, etc.)" requirement without hard-coding a single vendor
+anywhere else in the app.
 
 Each branch only imports its provider package when it's actually selected,
-so you don't need all four SDKs installed — just the one you use.
+so you don't need all SDKs installed — just the one you use.
 """
 
 import os
@@ -55,6 +56,17 @@ def get_llm(temperature: float = 0.3):
             temperature=temperature,
         )
 
+    if provider == "cerebras":
+        from langchain_cerebras import ChatCerebras
+
+        # ChatCerebras reads CEREBRAS_API_KEY from the environment
+        # automatically — no need to pass it explicitly.
+        return ChatCerebras(
+            model=os.getenv("CEREBRAS_MODEL", "llama-3.3-70b"),
+            temperature=temperature,
+        )
+
     raise ValueError(
-        f"Unknown LLM_PROVIDER '{provider}'. Use one of: anthropic, openai, groq, gemini."
+        f"Unknown LLM_PROVIDER '{provider}'. "
+        "Use one of: anthropic, openai, groq, gemini, cerebras."
     )
